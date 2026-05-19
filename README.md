@@ -14,6 +14,8 @@ This skill gives Claude Code the context it needs to do better.
 - **`patterns/`** - verified common patterns and anti-patterns with explanations
 - **`examples/`** - annotated runnable scripts
 - **`docs/`** - local snapshot of the CadQuery RST documentation for offline grepping
+- **`Modelfile`** - Ollama model definition with the skill pre-loaded as a system prompt
+- **`scripts/`** - utility scripts, including one to regenerate a full-content Modelfile from the markdown sources
 
 ## Installation
 
@@ -71,6 +73,26 @@ Adjust the path to match where you cloned the repo.
 ### Option 3 - Global CLAUDE.md
 
 To enable the skill for all projects, add the same block to `~/.claude/CLAUDE.md`.
+
+### Option 4 - Ollama / Open Models
+
+The repo includes a `Modelfile` that can be used to create a local `cadquery-coder`
+model in Ollama with a focused version of the skill pre-loaded as a system prompt.
+
+```bash
+ollama create cadquery-coder -f Modelfile
+ollama run cadquery-coder
+```
+
+**Model requirements:** This skill was designed and tested primarily with Claude Code.
+Open models require at least 14b parameters to follow the BRep constraints consistently -
+smaller models tend to revert to CSG/Boolean patterns regardless of the system prompt.
+The `Modelfile` defaults to `qwen2.5-coder:14b`. Responses can take minutes on a CPU-only
+machine depending on the complexity of the task and the CPU.
+
+**The `Modelfile` is a hand-crafted artifact** optimized for Ollama's use case - it is
+not generated from the markdown source files. If you want a Modelfile built from the
+full skill content instead, see `scripts/build_ollama_modelfile.py`.
 
 ## Grepping the Docs
 

@@ -53,6 +53,9 @@ examples/
   *.py                    # Annotated runnable scripts
 docs/
   *.rst / *.md            # CadQuery documentation snapshot (for local grep)
+Modelfile                 # Hand-crafted Ollama model definition (see below)
+scripts/
+  build_ollama_modelfile.py  # Generates a full-content Modelfile from markdown sources
 ```
 
 ## Adding an Anti-Pattern
@@ -88,4 +91,15 @@ offline grepping. When CadQuery releases a new version:
 1. Copy the updated RST source from the CadQuery repo into `docs/`
 2. Note the CadQuery version in a `docs/VERSION` file
 3. Review `SKILL.md` and the concept files for anything that needs updating
+
+## The Modelfile
+
+`Modelfile` is a hand-crafted artifact optimized for Ollama's use case. It is separate
+from the markdown source files - the two are intentionally independent because Claude Code
+and Ollama are different consumers with different needs.
+
+- Edit `Modelfile` directly to improve the Ollama experience
+- The markdown files (`SKILL.md`, `concepts/`, `patterns/`) are the source of truth for Claude Code
+- If you add a verified example to `examples/` that would be useful in the Modelfile, consider adding it there too
+- `scripts/build_ollama_modelfile.py` generates an alternative full-content Modelfile from the markdown sources - useful if you want to experiment with larger models that can handle more context
 
