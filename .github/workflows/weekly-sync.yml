@@ -1,0 +1,69 @@
+name: Autonomous CadQuery Skill Maintenance
+
+on:
+  schedule:
+    - cron: '0 1 * * 0' # Every Sunday at 01:00 UTC (1 hr after fork sync)
+  workflow_dispatch:      # Allows manual trigger via GitHub Actions UI
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  maintain-skill:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout cadquery-llm-skill
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone upstream CadQuery
+        run: |
+          git clone --depth 100 https://github.com/CadQuery/cadquery.git cadquery-upstream
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check for doc changes and update skill files
+        id: update
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python scripts/update_skill.py \
+            --cadquery-dir cadquery-upstream \
+            --repo-root . \
+            --commit-file .upstream_commit
+
+      - name: Commit updated commit baseline (no doc changes)
+        if: steps.update.outputs.docs_changed == 'false' && steps.update.outputs.commit_advanced == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .upstream_commit
+          git commit -m "chore: advance tracked upstream CadQuery commit to ${{ steps.update.outputs.new_commit }}"
+          git push origin main
+
+      - name: Create Pull Request with updated skill and docs snapshot
+        if: steps.update.outputs.docs_changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="update-skill-$(date +%Y-%m-%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add SKILL.md concepts/ patterns/ docs/ .upstream_commit
+          git commit -m "skill: autonomous update for CadQuery upstream changes (${{ steps.update.outputs.old_commit }}..${{ steps.update.outputs.new_commit }})"
+          git push -u origin "$BRANCH"
+
+          PR_BODY=$(cat update_summary.md 2>/dev/null || echo "Automated update based on upstream CadQuery documentation changes.")
+
+          gh pr create \
+            --title "${{ steps.update.outputs.pr_title }}" \
+            --body "$PR_BODY" \
+            --assignee atiretoo \
+            --reviewer atiretoo || true
