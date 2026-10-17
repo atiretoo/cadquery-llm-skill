@@ -1,41 +1,47 @@
-# Example: Demonstrates how Workplane("XZ") extrudes in -Y while Workplane("ZX") extrudes in +Y.
+# Example: Demonstrates both effects of switching from Workplane("XZ") to Workplane("ZX")
+# using identical BRep chains with .center(10, 0):
+#   1. On "XZ", .extrude() travels in -Y (downward), and .center(10, 0) shifts along +X.
+#   2. On "ZX", .extrude() travels in +Y (upward), and .center(10, 0) shifts along +Z
+#      because local 2D coordinates on "ZX" are (z, x).
 
 import cadquery as cq
 
 # Parameters
 plate_size = 40.0
 plate_thickness = 2.0
-cyl_radius = 5.0
+cyl_radius = 6.0
 cyl_length = 20.0
-x_offset = 10.0
+offset = 10.0
 
-# Thin square plate on the XZ plane at Y = 0.
-# Because "XZ" has xDir = +X and yDir = +Z, the right-hand rule (X x Z = -Y)
-# sets the plane normal to (0, -1, 0), so .extrude(2) extrudes from Y = 0 to Y = -2.
-plate = cq.Workplane("XZ").rect(plate_size, plate_size).extrude(plate_thickness)
-
-# Cylinder extruded with a positive distance (+20) on Workplane("XZ") at global X = -10.
-# Because the "XZ" normal points in -Y, this cylinder extends backward (Y: 0 -> -20).
-cyl_xz = (
+# 1. Workplane("XZ"): xDir = +X, yDir = +Z, normal = -Y (X x Z = -Y)
+#    - Plate and cylinder extrude backward in -Y (Y: 0 -> -20)
+#    - .center(10, 0) places the cylinder at global X = +10, Z = 0 (near the +X right edge)
+result_xz = (
     cq.Workplane("XZ")
-    .center(-x_offset, 0)  # on "XZ", local (x, y) maps to global (X, Z)
+    .tag("base_plane")
+    .rect(plate_size, plate_size)
+    .extrude(plate_thickness)          # Extrudes plate in -Y (Y: 0 -> -2)
+    .workplaneFromTagged("base_plane") # Reuses the "XZ" datum plane at Y = 0
+    .center(offset, 0)                 # Local (10, 0) -> global X = +10, Z = 0
     .circle(cyl_radius)
-    .extrude(cyl_length)
+    .extrude(cyl_length)               # Extrudes cylinder in -Y (Y: 0 -> -20)
 )
 
-# Cylinder extruded with a positive distance (+20) on the forward cyclic Workplane("ZX")
-# at global X = +10.
-# Because "ZX" has xDir = +Z and yDir = +X, the right-hand rule (Z x X = +Y)
-# sets the plane normal to (0, +1, 0), so this cylinder extends forward (Y: 0 -> +20).
-# Note that 2D coordinates on "ZX" are ordered (z, x).
-cyl_zx = (
+# 2. Workplane("ZX"): xDir = +Z, yDir = +X, normal = +Y (Z x X = +Y)
+#    - Changing only "XZ" -> "ZX" flips the extrusion to +Y (Y: 0 -> +20)
+#    - The same .center(10, 0) now places the cylinder at global Z = +10, X = 0
+#      (near the +Z front edge), because local (x, y) on "ZX" maps to global (Z, X).
+#      To place it at global X = +10, Z = 0 on "ZX", use .center(0, offset).
+result = (
     cq.Workplane("ZX")
-    .center(0, x_offset)   # on "ZX", local (x, y) maps to global (Z, X)
+    .tag("base_plane")
+    .rect(plate_size, plate_size)
+    .extrude(plate_thickness)          # Extrudes plate in +Y (Y: 0 -> +2)
+    .workplaneFromTagged("base_plane") # Reuses the "ZX" datum plane at Y = 0
+    .center(offset, 0)                 # Local (10, 0) -> global Z = +10, X = 0!
     .circle(cyl_radius)
-    .extrude(cyl_length)
+    .extrude(cyl_length)               # Extrudes cylinder in +Y (Y: 0 -> +20)
 )
-
-result = plate.union(cyl_xz).union(cyl_zx)
 
 # The following call can be used if running in CQ-editor
 # show_object(result)
