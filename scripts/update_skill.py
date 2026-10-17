@@ -60,8 +60,8 @@ def run_git(cmd: list[str], cwd: str) -> str:
     return res.stdout.strip()
 
 
-def call_gemini_json(api_key: str, prompt: str, model: str = "gemini-2.5-flash") -> dict:
-    models_to_try = [model, "gemini-2.0-flash", "gemini-1.5-flash"]
+def call_gemini_json(api_key: str, prompt: str, model: str = "gemini-3.8-flash") -> dict:
+    models_to_try = [model, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
     last_err = None
 
     for m in models_to_try:
