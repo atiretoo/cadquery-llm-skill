@@ -98,6 +98,7 @@ wp5 = cube.faces(">Z").workplane().transformed(offset=(1, 2, 3), rotate=(0, 0, 4
 - `centerOption` controls what "center" means — the default `"ProjectedOrigin"` projects the parent workplane origin onto the new face, which is often not the face center. Always set it explicitly when position matters.
 - After `.workplane()`, coordinates are **local** to that plane, not global.
 - `.transformed()` is cumulative within the current workplane context.
+- Named planes follow the right-hand cross product ($\text{local } X \times \text{local } Y = \text{normal}$): forward cyclic planes `"XY"`, `"YZ"`, and `"ZX"` have `+Z`, `+X`, and `+Y` normals, whereas `"XZ"` has a **`-Y` normal** (positive extrusions go in `-Y`). On `"ZX"`, local X is `+Z` and local Y is `+X`, so 2D coordinates are written `(z, x)`.
 
 ---
 
@@ -174,6 +175,9 @@ This OpenCASCADE kernel error means the requested geometry is invalid. Common ca
 - Shell thickness larger than the local radius of curvature
 
 See `patterns/anti-patterns.md` #14 for detailed fixes.
+
+### 7. Reverse-ordered `"XZ"` workplane normal (`-Y`) and `"ZX"` axis swap
+`cq.Workplane("XZ")` sets local X = `+X` and local Y = `+Z`, so the right-hand rule ($X \times Z = -Y$) points the normal in **`-Y`** — causing positive extrusions and offsets to travel backward along the Y axis. For a **`+Y`** normal, use the forward cyclic plane `cq.Workplane("ZX")` (noting that local 2D coordinates on `"ZX"` are `(z, x)`), or select an existing face with `.faces(">Y").workplane()`. See `concepts/workplanes.md` and `patterns/anti-patterns.md` #15.
 
 ---
 
