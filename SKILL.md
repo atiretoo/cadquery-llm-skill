@@ -1,3 +1,11 @@
+---
+name: cadquery
+description: >-
+  REQUIRED whenever writing, generating, modifying, inspecting, or debugging CadQuery Python code,
+  3D CAD models, or using the CadQuery MCP server. Contains idiomatic BRep modeling patterns,
+  workplane positioning, and selector cheat sheets.
+---
+
 # CadQuery LLM Skill
 
 This skill helps LLMs write correct, idiomatic CadQuery code.
