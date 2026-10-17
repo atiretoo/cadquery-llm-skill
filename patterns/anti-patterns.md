@@ -351,3 +351,42 @@ curvature — the offset surface self-intersects.
 
 Reduce the shell thickness or simplify the geometry before shelling.
 
+---
+
+## 15. Reverse-Ordered Named Workplanes (`"XZ"`) and the `"ZX"` Axis Swap
+
+When creating a named workplane `"AB"`, CadQuery maps `A` to the local X axis, `B` to the
+local Y axis, and computes the plane normal (`zDir`, the extrusion direction) via the
+right-hand cross product ($A \times B$).
+
+Because $X \times Z = -Y$, `cq.Workplane("XZ")` has a **`-Y` normal** `(0, -1, 0)`. Positive
+extrusions and `.workplane(offset=...)` calls on `"XZ"` therefore travel in the **negative**
+global Y direction.
+
+Conversely, the forward cyclic plane `cq.Workplane("ZX")` has a **`+Y` normal** `(0, 1, 0)`
+($Z \times X = +Y$), but its local 2D axes are `xDir = +Z` and `yDir = +X` — so all 2D sketch
+coordinates on `"ZX"` must be written as `(z, x)`.
+
+```python
+# Wrong (assuming "XZ" extrudes in +Y):
+# Because "XZ" has normal (0, -1, 0), .extrude(20) goes backward from Y=0 to Y=-20
+wrong_dir = cq.Workplane("XZ").center(15, 5).circle(6).extrude(20)
+
+# Wrong (switching to "ZX" for +Y normal, but still passing (x, z) 2D coordinates):
+# Places the cylinder at global Z=15, X=5 instead of X=15, Z=5
+wrong_coords = cq.Workplane("ZX").center(15, 5).circle(6).extrude(20)
+
+# Correct (using "ZX" for +Y extrusion, with 2D coordinates ordered (z, x)):
+# Places the cylinder at global X=15, Z=5 and extrudes from Y=0 to Y=+20
+correct_zx = (
+    cq.Workplane("ZX")
+    .center(5, 15)    # local (z=5, x=15) -> global X=15, Z=5
+    .circle(6)
+    .extrude(20)      # extrudes in +Y (Y: 0 -> +20)
+)
+
+# Also correct: when adding features to an existing solid, select the face directly
+# instead of starting a new global workplane (.faces(">Y").workplane() has normal +Y)
+base = cq.Workplane("XY").box(40, 20, 30)
+with_boss = base.faces(">Y").workplane().circle(5).extrude(10)
+```

@@ -19,7 +19,7 @@ import cadquery as cq
 # Named planes — origin at (0,0,0)
 wp1 = cq.Workplane("XY")   # normal = +Z
 wp2 = cq.Workplane("YZ")   # normal = +X
-wp3 = cq.Workplane("XZ")   # normal = +Y
+wp3 = cq.Workplane("ZX")   # normal = +Y  (note: "XZ" has normal = -Y)
 
 # From a cq.Plane object - explicit origin and normal
 wp4 = cq.Workplane(cq.Plane(origin=(0, 0, 10), normal=(0, 0, 1)))
@@ -30,6 +30,24 @@ wp5 = solid.faces(">Z").workplane()
 # Offset along the face normal
 wp6 = solid.faces(">Z").workplane(offset=5)
 ```
+
+### Named Plane Orientation (`"ZX"` vs `"XZ"`)
+
+When creating a workplane from a two-letter string `"AB"`, CadQuery assigns the first letter to the local X axis (`xDir`), the second letter to the local Y axis (`yDir`), and computes the normal (`zDir`, the extrusion direction) using the right-hand cross product ($A \times B$):
+
+| Plane | Local X (`xDir`) | Local Y (`yDir`) | Normal (`zDir` / extrude dir) |
+|-------|------------------|------------------|-------------------------------|
+| `"XY"` | `+X` | `+Y` | **`+Z`** |
+| `"YZ"` | `+Y` | `+Z` | **`+X`** |
+| `"ZX"` | **`+Z`** | **`+X`** | **`+Y`** |
+| `"XZ"` | `+X` | `+Z` | **`-Y`** |
+| `"YX"` | `+Y` | `+X` | **`-Z`** |
+| `"ZY"` | `+Z` | `+Y` | **`-X`** |
+
+Only the forward cyclic planes (`"XY"`, `"YZ"`, `"ZX"`) have positive normals (`+Z`, `+X`, `+Y`). This creates two important traps around the XZ plane:
+
+1. **`"XZ"` extrudes in `-Y`:** Because $X \times Z = -Y$, calling `.extrude(10)` or `.workplane(offset=10)` on `cq.Workplane("XZ")` moves in the **negative** global Y direction (`Y = 0` to `Y = -10`).
+2. **`"ZX"` extrudes in `+Y`, but swaps the 2D sketch axes:** On `cq.Workplane("ZX")`, local X is global `Z` and local Y is global `X`. Every 2D coordinate on `"ZX"` is therefore written as `(z, x)` — for example, `.center(z, x)`, `.moveTo(z, x)`, and `.rect(z_height, x_width)`.
 
 ## Moving the Workplane
 
@@ -248,6 +266,23 @@ solid.workplane().circle(3).extrude(5)
 
 # Explicit
 solid.faces(">Z").workplane().circle(3).extrude(5)
+```
+
+### Assuming `"XZ"` extrudes in `+Y` (or forgetting the `(z, x)` swap on `"ZX"`)
+
+Because `cq.Workplane("XZ")` has a `-Y` normal, positive extrusions and offsets go backward along the global Y axis. Use `"ZX"` when you need a `+Y` normal, and remember that `"ZX"` maps 2D `(x, y)` coordinates to global `(Z, X)`:
+
+```python
+# Wrong if you wanted +Y: "XZ" normal is -Y, so this extrudes from Y=0 to Y=-10
+boss = cq.Workplane("XZ").center(15, 5).rect(20, 8).extrude(10)
+
+# Correct (+Y normal): "ZX" extrudes from Y=0 to Y=+10, with 2D coords ordered (z, x)
+boss = (
+    cq.Workplane("ZX")
+    .center(5, 15)    # local (z, x) -> global Z=5, X=15
+    .rect(8, 20)      # 8 along Z, 20 along X
+    .extrude(10)      # extrudes in +Y
+)
 ```
 
 ## Workplanes in the Free Function API
