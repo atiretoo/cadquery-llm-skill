@@ -116,3 +116,11 @@ Claude Code can run these same greps when it needs to verify API details.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). All code examples must be verified before submission.
+
+## Branch Structure (`upstream_core` vs `main`) & License
+
+This repository maintains a two-branch structure to support both clean upstream contributions and AGPLv3 extensions:
+
+- **`upstream_core` branch (`Apache-2.0`)**: Tracks [`jmwright/cadquery-llm-skill`](https://github.com/jmwright/cadquery-llm-skill) under the original Apache License 2.0. Changes intended for upstream pull requests should be branched from `upstream_core`.
+- **`main` branch (`AGPL-3.0-or-later`)**: Our primary skill branch, licensed under the **GNU Affero General Public License v3.0 or later** ([`LICENSE`](LICENSE)), retaining the original Apache License 2.0 in [`LICENSE-APACHE`](LICENSE-APACHE).
+  - Incorporates OpenCASCADE (OCCT) kernel robustness rules, shell/fillet ordering guidelines, boolean hygiene patterns, and STL-to-BRep reverse-engineering verification workflows adapted from [**CNCKitchen/ScanRuler**](https://github.com/CNCKitchen/ScanRuler) (Copyright CNC Kitchen, licensed under `AGPL-3.0`).

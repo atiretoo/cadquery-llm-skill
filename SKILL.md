@@ -252,7 +252,53 @@ hollow = box.faces(">Z").shell(-2)  # negative = inward
 ```
 
 Common mistake: calling `.shell()` without first selecting which face to remove, resulting in a fully closed thin shell (usually not what you want).
-Shell can be a little buggy with certain profiles, as can offsetting.
+
+### Shell & Fillet Ordering Rules (OpenCASCADE Kernel)
+OpenCASCADE's offset algorithm in `.shell(-t)` will self-intersect and throw `BRep_API: command not done` if thin features or tight radii are present before shelling:
+1. **Shell the main form before adding thin features**: Any feature thinner than $2 \times \text{wall\_thickness}$ (e.g., alignment lips, snap hooks, internal ribs, screw bosses) cannot be hollowed inside itself. Shell the primary outer body first, then union or extrude thin features onto the shelled solid.
+2. **Large outer fillets ($R > \text{wall\_thickness}$) go BEFORE `.shell(-t)`**: Applying large structural fillets prior to shelling allows the inner wall to follow the outer contour with a concentric inner radius of $R - t$ (maintaining constant wall thickness).
+3. **Small edge-break fillets ($R \le \text{wall\_thickness}$) go AFTER `.shell(-t)`**: If applied before `.shell(-t)`, offsetting a radius $R \le t$ inward by $t$ collapses the inner surface into a zero- or negative-radius crease and fails.
+
+---
+
+## OpenCASCADE (OCCT) Kernel Hygiene & Boolean Rules
+
+*Adapted from [CNCKitchen/ScanRuler](https://github.com/CNCKitchen/ScanRuler) OpenCASCADE modeling guidelines.*
+
+1. **Round 3-edge corners in a single `.fillet()` call**:
+   - When three edges meet at a vertex, pass all three to a single `.fillet(r)` call so OCCT constructs a unified corner patch.
+   - Sequential `.fillet()` calls on meeting edges force the second fillet to run along the tangent seam of the first, frequently failing with `BRep_API: command not done`. If two meeting edges require different radii ($R_{\text{big}}$ and $R_{\text{small}}$), fillet the continuous chain with $R_{\text{big}}$ first so the cross edge inherits a smooth tangent transition, then fillet with $R_{\text{small}}$.
+2. **Never fillet across or end on a shallow crease ($1^\circ\text{--}5^\circ$)**:
+   - Adjacent faces meeting at a $1^\circ\text{--}5^\circ$ dihedral angle cause OCCT's fillet spine tracker to fail (`ChFi3d_Builder: chamfer or fillet not computable`). Replace nearly-collinear polyline segments in sketches with a single tangent arc or spline.
+3. **Embed bosses, ribs, and helper bodies $\sim 0.5\text{ mm}$ into parent skins**:
+   - Starting an extrusion or boolean helper flush on a curved or angled outer skin creates a zero-thickness grazing intersection and leaves micron-wide sliver faces ($< 0.01\text{ mm}^2$) that break downstream fillets. Start the feature $\sim 0.5\text{ mm}$ inside the parent solid so the boolean intersection is clean.
+4. **Avoid tangent knife-edges ($\ge 0.05\text{ mm}$ overlap)**:
+   - Never union or cut a cylinder that is exactly tangent to a planar face (a zero-thickness line contact). Overlap the cylinder into the wall by $\ge 0.05\text{ mm}$ or bridge it with a fillet so STEP round-trip export does not drop faces.
+5. **Revolve axis hygiene**:
+   - Profiles passed to `.revolve()` must terminate cleanly **on** the revolve axis ($x = 0$), never crossing to the negative side (self-intersecting solid).
+   - When revolving a dome or rounded cap, place the arc's center **on** the revolve axis so the profile meets the axis at $90^\circ$; an off-axis arc meets the pole at an angle and creates a degenerate vertex or dimple that breaks `.shell()` and `.fillet()`.
+
+---
+
+## Visual Inspection & MCP Rendering Guidelines
+
+When inspecting models with the CadQuery MCP server:
+- **Shaded 3D PNG (`image_format="png"`)**:
+  - Uses offscreen VTK rendering.
+  - By default, boundary and feature edge outlines (`show_edges=True`) are rendered on top of shaded faces so chamfers, fillets, and planar top surfaces maintain crisp visual definition rather than washing out under diffuse lighting.
+- **Technical Vector SVG (`image_format="svg"`)**:
+  - Computes hidden-line removal (HLR) directly from OCC geometry.
+  - Generates an opaque card background (`background_card=True`) inside the `<svg>` root tag so black technical strokes remain visible across both dark and light UI themes.
+- **Multi-View & Contact Sheet (`multi_view=True`, `contact_sheet=True`)**:
+  - `multi_view=True` emits isometric, front, top, and right views in a single call.
+  - `contact_sheet=True` composites the 4 standard views into a single labeled $2 \times 2$ grid PNG for rapid visual alignment checks.
+- **2D Cross-Section Slicing (`section_axis="X"|"Y"|"Z"`, `section_offset=0.0`)**:
+  - Slices the BRep solid with a plane in `render` or `inspect` and renders a 2D millimeter-grid SVG cross-section (plus wire loop counts and bounds) to verify internal wall thicknesses, counterbores, and clearances.
+- **Topology Audit & STL Reverse-Engineering (`inspect`, `analyze_stl`, `compare_mesh`)**:
+  - Always check `inspect` output for `Is Valid: True`, `Solids: 1` (no accidental multi-body split), `Closed Shells`, and zero sliver faces ($< 0.01\text{ mm}^2$) or short edges ($< 0.1\text{ mm}$).
+  - When reverse-engineering a CAD-exported STL, use `analyze_stl` to extract exact planes, cylinders, cones, circles, and axis-aligned step heights, and `compare_mesh` to compute Hausdorff/chamfer surface deviation against the rebuilt CadQuery solid.
+- **Local Module Imports**:
+  - Prepend `sys.path.insert(0, os.path.abspath("."))` when rendering models that import local project modules (`from src.params import ...`).
 
 ---
 
@@ -261,6 +307,7 @@ Shell can be a little buggy with certain profiles, as can offsetting.
 | Topic | File |
 |-------|------|
 | BRep vs CSG concepts | `concepts/brep-mindset.md` |
+| Visual inspection & rendering | `concepts/visual-inspection-and-rendering.md` |
 | Workplane (fluent) API | `concepts/workplanes.md` |
 | Free Function API | `concepts/free-function-api.md` |
 | Full selector reference | `concepts/selectors.md` |

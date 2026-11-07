@@ -344,12 +344,58 @@ extruded solid folds back on itself at tight bends.
 
 Reduce the profile size or increase the path radius.
 
-### Shell thickness too large
+### Shell thickness too large or wrong `.shell()` vs. `.fillet()` ordering
 
 `.shell()` fails when the thickness is larger than the smallest local radius of
 curvature — the offset surface self-intersects.
 
-Reduce the shell thickness or simplify the geometry before shelling.
+*Adapted from [CNCKitchen/ScanRuler](https://github.com/CNCKitchen/ScanRuler) OpenCASCADE modeling guidelines:*
+- **Shell before thin features**: Any feature thinner than $2 \times \text{wall\_thickness}$ (e.g., snap hooks, alignment lips, ribs, screw bosses) cannot be hollowed inside itself. Shell the main housing *first*, then add thin features onto the shelled body.
+- **Large outer fillets ($R > \text{wall\_thickness}$) go BEFORE `.shell(-t)`**: This lets the inner wall follow the rounded outer corner with concentric inner radius $R - t$.
+- **Small outer fillets ($R \le \text{wall\_thickness}$) go AFTER `.shell(-t)`**: Offsetting a radius $R \le t$ inward by $t$ collapses the inner surface into a zero- or negative-radius crease and throws `BRep_API: command not done`.
+
+```python
+wall = 2.0
+# Correct ordering: large fillet (R=5 > wall) BEFORE shell, small fillet (R=0.8 <= wall) AFTER shell
+housing = (
+    cq.Workplane("XY")
+    .box(40, 30, 20)
+    .edges("|Z").fillet(5.0)        # R=5.0 > wall=2.0 -> inner radius becomes 3.0 mm
+    .faces(">Z").shell(-wall)       # shell main form before adding thin lips/ribs
+    .edges("<Z").fillet(0.8)        # R=0.8 <= wall=2.0 -> apply after shell
+)
+```
+
+### Sequential fillets at a 3-edge corner vs. single-call `.fillet()`
+
+When three edges meet at a vertex, rounding them in separate `.fillet()` calls forces the second fillet to run along the tangent seam of the first, frequently failing in OpenCASCADE's `ChFi3d_Builder`.
+- **Same radius**: Select all 3 meeting edges in a **single** `.fillet(r)` call so OCCT constructs a unified 3-edge corner patch.
+- **Different radii ($R_{\text{big}}$ and $R_{\text{small}}$)**: Fillet the continuous edge chain with $R_{\text{big}}$ first so the cross edge inherits a smooth tangent arc, then apply $R_{\text{small}}$.
+
+### Filleting across or ending on a shallow crease ($1^\circ\text{--}5^\circ$)
+
+When two adjacent faces meet at a very shallow dihedral angle ($1^\circ\text{--}5^\circ$), OCCT's fillet spine tracker cannot compute a stable rolling-ball contact and fails (`ChFi3d_Builder: chamfer or fillet not computable`).
+- Fix: Replace nearly-collinear polyline segments in 2D sketches with a single tangent arc (`.tangentArcPoint()`) or `.spline()`.
+
+### Flush booleans on curved skins & tangent knife-edges (sliver faces)
+
+- **Bosses/ribs flush with curved skins**: Starting a boss or rib flush on a curved or drafted wall creates a grazing boolean intersection that leaves micron-wide sliver faces ($< 0.01\text{ mm}^2$) and short edges ($< 0.1\text{ mm}$), which cause downstream `.fillet()` calls to fail. Start helper bodies $\sim 0.5\text{ mm}$ **inside** the parent solid so they overlap cleanly.
+- **Tangent cylinder knife-edges**: Unioning or cutting a cylinder that is exactly tangent to a planar face creates a zero-thickness line contact (non-manifold edge) that drops faces on STEP round-trip. Overlap the cylinder into the wall by $\ge 0.05\text{ mm}$ or bridge it with a fillet.
+
+### Revolve axis violations & off-axis dome arcs
+
+- Never let a `.revolve()` profile cross the revolve axis ($x < 0$), which creates a self-intersecting solid.
+- When revolving a dome or rounded endcap, place the arc center **on** the revolve axis so the arc meets the axis at $90^\circ$. An off-axis arc meets the pole at an acute/obtuse angle, creating a degenerate pole vertex or dimple that breaks `.shell()` and `.fillet()`.
+
+### OpenCASCADE Kernel Error & Symptom Troubleshooting Table
+
+| Symptom / Exception | Root Cause in OpenCASCADE | Fix |
+|---|---|---|
+| `StdFail_NotDone: BRep_API: command not done` on `.fillet()` | Radius exceeds adjacent face width; sequential fillets collide at a 3-edge corner; fillet crosses a $1^\circ\text{--}5^\circ$ shallow crease; or upstream boolean left a $< 0.01\text{ mm}^2$ sliver face. | Group 3-edge corners into one `.fillet()` call; fillet $R_{\text{big}}$ before $R_{\text{small}}$; embed upstream boolean helpers $\sim 0.5\text{ mm}$ inside parent skin; eliminate shallow sketch creases. |
+| `StdFail_NotDone: BRep_API: command not done` on `.shell()` | Wall thickness $t \ge$ local inner curvature radius; outer fillet $R \le t$ applied before `.shell(-t)`; or thin feature ($< 2t$) present on solid before shelling. | Apply fillets with $R > t$ *before* `.shell(-t)` and $R \le t$ *after*; shell main housing before adding thin ribs/lips/hooks. |
+| `BRep_API: command not done` or `Null TopoDS_Shape` on `.union()` / `.cut()` | Coplanar grazing faces, tangent cylinder knife-edge (zero-thickness line contact), or flush boss on a curved surface. | Extend cutting tool $\ge 0.5\text{ mm}$ past open faces; embed union bosses $\sim 0.5\text{ mm}$ into parent body; overlap tangent cylinders by $\ge 0.05\text{ mm}$. |
+| `BRep_API: command not done` on `.revolve()` or downstream failure at pole | Profile crosses revolve axis ($x < 0$), fails to close on axis, or dome arc center does not lie on the revolve axis. | Terminate profile exactly at $x = 0$ on the axis; place dome arc center on the axis ($90^\circ$ tangent at pole). |
+| Silent boolean failure (`Solids: 2+` in `inspect` or unchanged volume) | Extrusion or union helper missed the target body (e.g., `"XZ"` workplane extruded in $-Y$ instead of $+Y$, or gap between solids) or cut tool cut air. | Check `inspect` for `Solids: 1` and verify volume delta (`> 1e-6 mm³`); use `contact_sheet=True` or `multi_view=True` to check alignment. |
 
 ---
 
