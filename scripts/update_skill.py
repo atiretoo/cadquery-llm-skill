@@ -9,9 +9,11 @@ into SKILL.md, concepts/*.md, and patterns/*.md while preserving critical rules.
 import argparse
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -60,8 +62,20 @@ def run_git(cmd: list[str], cwd: str) -> str:
     return res.stdout.strip()
 
 
-def call_gemini_json(api_key: str, prompt: str, model: str = "gemini-3.8-flash") -> dict:
-    models_to_try = [model, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+RETRYABLE_HTTP_CODES = {429, 500, 502, 503, 504}
+
+
+def call_gemini_json(
+    api_key: str,
+    prompt: str,
+    model: str | None = None,
+    max_retries: int = 4,
+    base_delay: float = 5.0,
+) -> dict:
+    primary = model or os.environ.get("GEMINI_MODEL") or "gemini-flash-latest"
+    models_to_try = list(
+        dict.fromkeys([primary, "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3.8-flash"])
+    )
     last_err = None
 
     for m in models_to_try:
@@ -75,26 +89,56 @@ def call_gemini_json(api_key: str, prompt: str, model: str = "gemini-3.8-flash")
             },
         }
         data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
 
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-                if text.startswith("```json"):
-                    text = text[len("```json") :].strip()
-                elif text.startswith("```"):
-                    text = text[len("```") :].strip()
-                if text.endswith("```"):
-                    text = text[:-3].strip()
-                return json.loads(text)
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="replace")
-            print(f"Warning: Gemini model {m} failed with HTTP {e.code}: {err_body}", file=sys.stderr)
-            last_err = e
-        except Exception as e:
-            print(f"Warning: Gemini model {m} failed with error: {e}", file=sys.stderr)
-            last_err = e
+        for attempt in range(max_retries + 1):
+            req = urllib.request.Request(
+                url, data=data, headers={"Content-Type": "application/json"}
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=180) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                    text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    if text.startswith("```json"):
+                        text = text[len("```json") :].strip()
+                    elif text.startswith("```"):
+                        text = text[len("```") :].strip()
+                    if text.endswith("```"):
+                        text = text[:-3].strip()
+                    return json.loads(text)
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="replace")
+                last_err = e
+                if e.code in RETRYABLE_HTTP_CODES and attempt < max_retries:
+                    delay = base_delay * (2**attempt) + random.uniform(0.0, 2.0)
+                    print(
+                        f"Warning: Gemini model {m} returned HTTP {e.code} "
+                        f"(attempt {attempt + 1}/{max_retries + 1}); retrying in {delay:.1f}s...",
+                        file=sys.stderr,
+                    )
+                    time.sleep(delay)
+                    continue
+                print(
+                    f"Warning: Gemini model {m} failed with HTTP {e.code}: {err_body}",
+                    file=sys.stderr,
+                )
+                break
+            except (urllib.error.URLError, TimeoutError) as e:
+                last_err = e
+                if attempt < max_retries:
+                    delay = base_delay * (2**attempt) + random.uniform(0.0, 2.0)
+                    print(
+                        f"Warning: Gemini model {m} network/timeout error ({e}) "
+                        f"(attempt {attempt + 1}/{max_retries + 1}); retrying in {delay:.1f}s...",
+                        file=sys.stderr,
+                    )
+                    time.sleep(delay)
+                    continue
+                print(f"Warning: Gemini model {m} failed with error: {e}", file=sys.stderr)
+                break
+            except Exception as e:
+                print(f"Warning: Gemini model {m} failed with error: {e}", file=sys.stderr)
+                last_err = e
+                break
 
     raise RuntimeError(f"All Gemini models failed. Last error: {last_err}")
 
