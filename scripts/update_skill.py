@@ -71,31 +71,37 @@ def call_gemini_json(
     model: str | None = None,
     max_retries: int = 4,
     base_delay: float = 5.0,
+    request_timeout: int = 600,
 ) -> dict:
-    primary = model or os.environ.get("GEMINI_MODEL") or "gemini-flash-latest"
+    primary = model or os.environ.get("GEMINI_MODEL") or "gemini-4-hydrogen"
     models_to_try = list(
-        dict.fromkeys([primary, "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3.8-flash"])
+        dict.fromkeys([primary, "gemini-4-hydrogen", "gemini-4-neon", "gemini-flash-latest"])
     )
     last_err = None
 
     for m in models_to_try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
+        use_thinking_config = True
+
+        for attempt in range(max_retries + 1):
+            gen_config: dict = {
                 "temperature": 0.2,
                 "maxOutputTokens": 16384,
                 "responseMimeType": "application/json",
-            },
-        }
-        data = json.dumps(payload).encode("utf-8")
+            }
+            if use_thinking_config:
+                gen_config["thinkingConfig"] = {"thinkingLevel": "low"}
 
-        for attempt in range(max_retries + 1):
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": gen_config,
+            }
+            data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
                 url, data=data, headers={"Content-Type": "application/json"}
             )
             try:
-                with urllib.request.urlopen(req, timeout=180) as resp:
+                with urllib.request.urlopen(req, timeout=request_timeout) as resp:
                     result = json.loads(resp.read().decode("utf-8"))
                     text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
                     if text.startswith("```json"):
@@ -108,6 +114,17 @@ def call_gemini_json(
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode("utf-8", errors="replace")
                 last_err = e
+                if (
+                    e.code == 400
+                    and use_thinking_config
+                    and ("thinking" in err_body.lower())
+                ):
+                    print(
+                        f"Warning: Gemini model {m} rejected thinkingConfig; retrying without it...",
+                        file=sys.stderr,
+                    )
+                    use_thinking_config = False
+                    continue
                 if e.code in RETRYABLE_HTTP_CODES and attempt < max_retries:
                     delay = base_delay * (2**attempt) + random.uniform(0.0, 2.0)
                     print(
